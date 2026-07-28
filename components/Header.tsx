@@ -4,6 +4,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import React from 'react'
 import { Button } from './ui/button';
+import PricingModal from './PricingModal';
 
 const Header = () => {
   return (
@@ -22,10 +23,12 @@ const Header = () => {
           <Show when="signed-in">
             <Link href={"/projects"} className="text-[13] font-medium text-white/40 transition-colors hover:text-white/80">Projects</Link>
 
-            <span className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-xs text-white/70">
-              <Zap className="h-3 w-3 fill-white/70" />
-              3 / 40 credits
-            </span>
+            <PricingModal>
+              <span className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-xs text-white/70">
+                <Zap className="h-3 w-3 fill-white/70" />
+                3 / 40 credits
+              </span>
+            </PricingModal>
             <UserButton />
           </Show>
 
@@ -39,7 +42,7 @@ const Header = () => {
             <SignUpButton mode="modal">
               <Button size="sm" className={"h-8 rounded-full font-semibold active:scale-95 px-4 pt-0.5"}>
                 Get Started
-                <ArrowRight className="h-3 w-3 opacity-60"/>
+                <ArrowRight className="h-3 w-3 opacity-60" />
               </Button>
             </SignUpButton>
           </Show>
