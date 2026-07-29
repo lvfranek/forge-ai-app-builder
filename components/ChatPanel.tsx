@@ -5,6 +5,9 @@ import React, { useRef, useState } from 'react'
 import { BlueTitle } from './reusables';
 import PricingModal from './PricingModal';
 import { cn } from '@/lib/utils';
+import ReactMarkdown from "react-markdown";
+import { Check, Divide, Loader2 } from 'lucide-react';
+import Image from "next/image";
 
 interface ChatPanelProps {
     messages: Message[];
@@ -54,6 +57,12 @@ const ChatPanel = ({
         },
     ];
 
+    const statuses = [
+        { label: "Planning the component structure", status: "done" },
+        { label: "Writing App.js and components", status: "done" },
+        { label: "Validating packages...", status: "running" },
+    ];
+
     return (
         <div className="flex w-[320px] shrink-0 flex-col bg-[#0d0d0d]">
             <div className="flex items-center justify-between border-b border-white/6 px-4 py-3">
@@ -84,7 +93,7 @@ const ChatPanel = ({
                 )}
 
                 <div className="space-y-4">
-                    {msgs.map((msg, i) => (
+                    {messages.map((msg, i) => (
                         <div key={i}>
                             {msg.role === "user" ? (
                                 <div className="flex items-start justify-end gap-2">
@@ -98,6 +107,13 @@ const ChatPanel = ({
                                 </div>
                             ) : (
                                 <div className="flex items-start gap-2">
+                                    <Image
+                                        src="/logo-short.jpeg"
+                                        alt="Forge"
+                                        width={24}
+                                        height={24}
+                                        className="mt-0.5 h-6 w-6 shrink-0 rounded-md"
+                                    />
                                     <div className="min-w-0 rounded-2xl rounded-tl-sm bg-white/5 px-3.5 py-2.5">
                                         <p className="text-[13px] leading-relaxed text-white/70 wrap-break-word">
                                             {msg.content}
@@ -107,11 +123,48 @@ const ChatPanel = ({
                             )}
                         </div>
                     ))}
+                
+
+                {isGenerating && (<div className="flex items-start gap-2">
+                    <Image
+                        src="/logo-short.jpeg"
+                        alt="Forge"
+                        width={24}
+                        height={24}
+                        className="mt-0.5 h-6 w-6 shrink-0 rounded-md"
+                    />
+                    <div className="rounded-2xl rounded-tl-sm bg-white/5 px-3.5 py-3">
+                        <div className="space-y-2">
+                            {statusLog.map((step, i) => (
+                                <div key={i} className="flex items-center gap-2.5">
+                                    <div className="flex h-4 w-4 shrink-0 items-center justify-center">
+                                        {step.status === "running" ? (
+                                            <Loader2 className="h-3 w-3 animate-spin text-blue-400/80" />
+                                        ) : (
+                                            <Check className="h-3 w-3 text-white/25" />
+                                        )}
+                                    </div>
+                                    <span
+                                        className={cn(
+                                            "text-[12px] transition-colors duration-300",
+                                            step.status === "running"
+                                                ? "text-white/75"
+                                                : "text-white/25"
+                                        )}
+                                    >
+                                        {step.label}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>)}
                 </div>
             </div>
 
+         <div className="border-t border-white/6 p-3"></div>   
         </div>
-    )
-}
+    );
+};
 
 export default ChatPanel
