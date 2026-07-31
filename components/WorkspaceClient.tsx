@@ -118,18 +118,28 @@ const WorkspaceClient = ({ initialPrompt, userCredits, workspace, userId, userPl
             if (res.status === 402) {
                 toast.error("Not enough credits.");
                 setMessages((prev) => prev.slice(0, -1));
-                return
+                return;
             }
             if (res.status === 429) {
                 toast.error("Too many requests. Please slow down.");
                 setMessages((prev) => prev.slice(0, -1));
                 return;
             }
-            if (!res.ok || !res.body) throw new Error("Generation failed");
+            if (!res.ok || !res.body) {
+                let detail = "Generation failed";
+                try {
+                    const errBody = await res.json();
+                    if (errBody?.message) detail = errBody.message;
+                } catch {
+                    /* ignore non-JSON error bodies */
+                }
+                throw new Error(detail);
+            }
 
             const reader = res.body.getReader();
             const decoder = new TextDecoder();
             let buffer = "";
+            let receivedDone = false;
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -140,33 +150,57 @@ const WorkspaceClient = ({ initialPrompt, userCredits, workspace, userId, userPl
                 buffer = lines.pop() ?? "";
 
                 for (const line of lines) {
-                    if (!line.startsWith("data: "))
+                    if (!line.startsWith("data: ")) continue;
 
-                        try {
-                            const event = JSON.parse(line.slice(6));
+                    let event: {
+                        type: string;
+                        message?: string;
+                        workspaceId?: string;
+                        assistantMessage?: string;
+                        fileData?: FileData;
+                        creditsRemaining?: number;
+                    };
 
-                            if (event.type === "status") {
-                                pushStep(event.message);
-                            } else if (event.type === "done") {
-                                completeSteps();
-                                setWorkspaceId(event.workspaceId);
-                                setFileData(event.fileData);
-                                setCredits(event.creditsRemaining);
-                                setMessages((prev) => [
-                                    ...prev,
-                                    { role: "assistant", content: event.asisstantMessage },
-                                ]);
-                                window.history.replaceState(
-                                    null,
-                                    "",
-                                    `/workspace?id${event.workspaceId}`
-                                );
-                            } else if (event.type === "error") {
-                                throw new Error(event.message);
-                            }
-                        } catch (error) { }
+                    try {
+                        event = JSON.parse(line.slice(6));
+                    } catch {
+                        continue;
+                    }
 
+                    if (event.type === "status" && event.message) {
+                        pushStep(event.message);
+                    } else if (event.type === "done") {
+                        receivedDone = true;
+                        completeSteps();
+                        setWorkspaceId(event.workspaceId ?? null);
+                        setFileData(event.fileData ?? null);
+                        if (typeof event.creditsRemaining === "number") {
+                            setCredits(event.creditsRemaining);
+                        }
+                        setMessages((prev) => [
+                            ...prev,
+                            {
+                                role: "assistant",
+                                content: event.assistantMessage ?? "Done.",
+                            },
+                        ]);
+                        if (event.workspaceId) {
+                            window.history.replaceState(
+                                null,
+                                "",
+                                `/workspace?id=${event.workspaceId}`,
+                            );
+                        }
+                    } else if (event.type === "error") {
+                        throw new Error(
+                            event.message ?? "Something went wrong. Please try again.",
+                        );
+                    }
                 }
+            }
+
+            if (!receivedDone) {
+                throw new Error("Generation ended unexpectedly. Please try again.");
             }
         } catch (err) {
             toast.error(
