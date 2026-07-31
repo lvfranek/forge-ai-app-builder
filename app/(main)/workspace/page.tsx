@@ -12,12 +12,16 @@ const WorkspacePage = async ({ searchParams }: WorkspacePageProps) => {
   if (!userId) redirect("/");
 
   const { prompt, id } = await searchParams;
+
+  let workspace = null;
+
   return (
     <WorkspaceClient
     initialPrompt={prompt ?? null}
     userCredits={10}
     userId={userId}
     userPlan="free"
+    workspace={workspace}
     />
   )
 };

@@ -4,6 +4,7 @@ import { FileData, Message } from "@/types/workspace";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest } from "next/server";
 import { GoogleGenAI } from "@google/genai";
+import { DependenciesProgress } from "@codesandbox/sandpack-react";
 
 function trimHistory(messages: Message[]): Message[] {
     if (messages.length <= 10) return messages;
@@ -83,6 +84,26 @@ function sseEvent(type: string, payload: unknown): string {
     return `data: ${JSON.stringify({ type, ...(payload as object) })}\n\n`;
 }
 
+async function validateDependencies(
+    deps: Record<string, string>,
+): Promise<Record<string, string>> {
+    const valid: Record<string, string> = {};
+
+    await Promise.all(
+        Object.entries(deps).map(async ([pkg, version]) => {
+            try {
+                const res = await fetch(`https://registry.npmjs.org/${pkg}/latest`, {
+                    signal: AbortSignal.timeout(1500),
+                });
+                if (res.ok) valid[pkg] = version;
+            } catch {
+
+            }
+        }),
+    );
+    return valid;
+}
+
 export async function POST(request: NextRequest) {
     const { userId: clerkId } = await auth();
     if (!clerkId) {
@@ -102,7 +123,7 @@ export async function POST(request: NextRequest) {
     }
 
     const user = await db.user.findUnique({
-        where: { id: userId, clerkId },
+        where: { id: clerkId },
         select: { id: true, credits: true },
     });
 
@@ -154,19 +175,18 @@ export async function POST(request: NextRequest) {
                                 if (label) {
                                     enqueue(sseEvent("status", { message: label }));
                                     lastEmitTime = now;
-                                } else {
-                                    accumulated += part.text;
                                 }
                             }
+                        } else {
+                            accumulated += part.text;
                         }
                     }
-
                 }
 
                 let parsed: {
                     assistantMessage: string;
                     title?: string;
-                    files: Record<string, { code: string}>;
+                    files: Record<string, { code: string }>;
                     dependencies: Record<string, string>;
                 };
 
@@ -200,13 +220,79 @@ export async function POST(request: NextRequest) {
                 }
 
                 enqueue(sseEvent("status", { message: "Validating packages..." }));
-            } catch (error) {
+                const validatedDeps = await validateDependencies(dependencies ?? {});
+                const newFileData: FileData = {
+                    files,
+                    dependencies: validatedDeps,
+                    title: aiTitle,
+                };
 
+                enqueue(sseEvent("status", { message: "Saving..." }));
+
+                const lastUserMsg = messages[messages.length - 1];
+                const updatedMessages: Message[] = [
+                    ...messages,
+                    { role: "assistant", content: assistantMessage },
+                ];
+
+                const [workspace] = await db.$transaction([
+                    workspaceId
+                        ? db.workspace.update({
+                            where: { id: workspaceId, userId },
+                            data: {
+                                messages: updatedMessages as never,
+                                fileData: newFileData as never,
+                            },
+                        })
+                        : db.workspace.create({
+                            data: {
+                                userId,
+                                title: aiTitle ?? lastUserMsg.content.slice(0, 80),
+                                messages: updatedMessages as never,
+                                fileData: newFileData as never,
+                            },
+                        }),
+                    db.user.update({
+                        where: { id: userId },
+                        data: { credots: { decrement: CREDIT_COST_PER_GENERATION } },
+                    }),
+                ]);
+
+                const updatedUser = await db.user.findUnique({
+                    where: { id: userId },
+                    select: { credits: true },
+                });
+
+                enqueue(
+                    sseEvent("done", {
+                        workspaceId: workspace.id,
+                        assistantMessage,
+                        fileData: newFileData,
+                        creditsRemaining:
+                            updatedUser?.credits ?? user.credits - CREDIT_COST_PER_GENERATION,
+                    }),
+                );
+            } catch (err) {
+                console.error("[gen-ai-code] stream error:", err);
+                enqueue(
+                    sseEvent("error", {
+                        message: "Something went wrong. Please try again.",
+                    }),
+                );
+            } finally {
+                controller.close();
             }
-
         },
-    })
+    });
 
+    return new Response(stream, {
+        headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+        },
+    });
 }
 
-
+export const runtime = "nodejs";
+export const maxDuration = 300; // Vercel fluid, 300s timeout for long generation
