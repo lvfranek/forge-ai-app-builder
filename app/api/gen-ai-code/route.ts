@@ -4,6 +4,8 @@ import { FileData, Message } from "@/types/workspace";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest } from "next/server";
 import { GoogleGenAI } from "@google/genai";
+import { detectPromptInjection } from "@arcjet/next";
+import { aj } from "@/lib/arcjet";
 
 function trimHistory(messages: Message[]): Message[] {
     if (messages.length <= 10) return messages;
@@ -272,6 +274,21 @@ export async function POST(request: NextRequest) {
 
     if (!messages?.length) {
         return Response.json({ message: "No messages provided" }, { status: 400 });
+    }
+
+    const lastUserMessage =
+        [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+
+    const decision = await aj.protect(request, {
+        requested: 1,
+        userId: clerkId,
+        detectPromptInjectionMessage: lastUserMessage,
+    });
+    if (decision.isDenied()) {
+        return Response.json(
+            { message: decision.reason?.type ?? "Request blocked" },
+            { status: 429 },
+        );
     }
 
     // User.id is a cuid; Clerk's id lives on clerkId (see actions/workspace.ts)
